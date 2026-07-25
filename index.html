@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Nolan Movie Ranker</title>
+  <style>
+    :root {
+      --bg: #0d0f12;
+      --card-bg: #1a1d24;
+      --card-hover: #242832;
+      --accent: #3b82f6;
+      --text: #f3f4f6;
+      --subtext: #9ca3af;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+
+    h1 {
+      text-align: center;
+      margin-bottom: 8px;
+      font-size: 1.8rem;
+      letter-spacing: -0.025em;
+    }
+
+    p.subtitle {
+      text-align: center;
+      color: var(--subtext);
+      margin-top: 0;
+      margin-bottom: 24px;
+      font-size: 0.95rem;
+    }
+
+    .list {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .card {
+      background-color: var(--card-bg);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      cursor: grab;
+      user-select: none;
+      transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .card:active {
+      cursor: grabbing;
+    }
+
+    .card.dragging {
+      opacity: 0.4;
+      transform: scale(0.98);
+    }
+
+    .card.drag-over {
+      border-color: var(--accent);
+      background-color: var(--card-hover);
+    }
+
+    .rank {
+      font-weight: 700;
+      font-size: 1.1rem;
+      color: var(--accent);
+      min-width: 28px;
+    }
+
+    .info {
+      flex-grow: 1;
+    }
+
+    .title {
+      font-weight: 600;
+      font-size: 1rem;
+    }
+
+    .year {
+      font-size: 0.85rem;
+      color: var(--subtext);
+    }
+
+    .handle {
+      color: var(--subtext);
+      font-size: 1.2rem;
+    }
+
+    .actions {
+      margin-top: 28px;
+      display: flex;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background-color: var(--accent);
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+      transition: opacity 0.2s ease;
+    }
+
+    button:hover {
+      opacity: 0.9;
+    }
+
+    button.secondary {
+      background-color: var(--card-bg);
+      border: 1px solid rgba(255,255,255,0.15);
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%) translateY(100px);
+      background: #22c55e;
+      color: white;
+      padding: 10px 20px;
+      border-radius: 20px;
+      font-weight: 600;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    }
+
+    .toast.show {
+      transform: translateX(-50%) translateY(0);
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🎬 Christopher Nolan Tiering</h1>
+  <p class="subtitle">Drag and drop to rank from Best (#1) to Worst</p>
+
+  <div class="list" id="movie-list"></div>
+
+  <div class="actions">
+    <button onclick="shareRanking()">📋 Share My Ranking</button>
+    <button class="secondary" onclick="resetRanking()">↺ Reset</button>
+  </div>
+
+  <div id="toast" class="toast">Link copied to clipboard!</div>
+
+  <script>
+    const MOVIES = [
+      { id: "m1",  title: "Following",       year: 1998 },
+      { id: "m2",  title: "Memento",         year: 2000 },
+      { id: "m3",  title: "Insomnia",        year: 2002 },
+      { id: "m4",  title: "Batman Begins",    year: 2005 },
+      { id: "m5",  title: "The Prestige",     year: 2006 },
+      { id: "m6",  title: "The Dark Knight",  year: 2008 },
+      { id: "m7",  title: "Inception",        year: 2010 },
+      { id: "m8",  title: "The Dark Knight Rises", year: 2012 },
+      { id: "m9",  title: "Interstellar",     year: 2014 },
+      { id: "m10", title: "Dunkirk",          year: 2017 },
+      { id: "m11", title: "Tenet",            year: 2020 },
+      { id: "m12", title: "Oppenheimer",      year: 2023 }
+    ];
+
+    const STORAGE_KEY = "nolan-ranking";
+    let dragSrcIdx = null;
+
+    function loadOrder() {
+      const stored = localStorage.getItem(STORAGE_KEY);
+      if (stored) {
+        try {
+          const ids = JSON.parse(stored);
+          const idSet = new Set(ids);
+          const movieMap = Object.fromEntries(MOVIES.map(m => [m.id, m]));
+          // Ensure all movies present
+          const missing = MOVIES.filter(m => !idSet.has(m.id)).map(m => m.id);
+          return ids.concat(missing);
+        } catch { /* fall through */ }
+      }
+      return MOVIES.map(m => m.id);
+    }
+
+    function saveOrder(ids) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
+    }
+
+    function render() {
+      const ids = loadOrder();
+      listContainer.innerHTML = "";
+      ids.forEach((id, idx) => {
+        const movie = MOVIES.find(m => m.id === id);
+        if (!movie) return;
+        const card = document.createElement("div");
+        card.className = "card";
+        card.draggable = true;
+        card.dataset.id = id;
+
+        card.innerHTML = `
+          <span class="rank">#${idx + 1}</span>
+          <div class="info">
+            <div class="title">${movie.title}</div>
+            <div class="year">${movie.year}</div>
+          </div>
+          <span class="handle">⠿</span>
+        `;
+
+        card.addEventListener("dragstart", onDragStart);
+        card.addEventListener("dragend", onDragEnd);
+        card.addEventListener("dragover", onDragOver);
+        card.addEventListener("dragenter", onDragEnter);
+        card.addEventListener("dragleave", onDragLeave);
+        card.addEventListener("drop", onDrop);
+
+        listContainer.appendChild(card);
+      });
+    }
+
+    function getIdx(el) {
+      return Array.from(listContainer.children).indexOf(el);
+    }
+
+    function onDragStart(e) {
+      dragSrcIdx = getIdx(this);
+      this.classList.add("dragging");
+      e.dataTransfer.effectAllowed = "move";
+      e.dataTransfer.setData("text/plain", this.dataset.id);
+    }
+
+    function onDragEnd() {
+      this.classList.remove("dragging");
+      document.querySelectorAll(".card.drag-over").forEach(c => c.classList.remove("drag-over"));
+      dragSrcIdx = null;
+    }
+
+    function onDragOver(e) {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+    }
+
+    function onDragEnter(e) {
+      e.preventDefault();
+      if (this !== e.currentTarget) return;
+      this.classList.add("drag-over");
+    }
+
+    function onDragLeave() {
+      this.classList.remove("drag-over");
+    }
+
+    function onDrop(e) {
+      e.preventDefault();
+      this.classList.remove("drag-over");
+      const targetIdx = getIdx(this);
+      if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+
+      const list = listContainer;
+      const items = Array.from(list.children);
+      const srcItem = items[dragSrcIdx];
+      const tgtItem = items[targetIdx];
+
+      if (dragSrcIdx < targetIdx) {
+        list.insertBefore(srcItem, tgtItem.nextSibling);
+      } else {
+        list.insertBefore(srcItem, tgtItem);
+      }
+
+      // Update ranks
+      const newIds = Array.from(list.children).map(c => c.dataset.id);
+      saveOrder(newIds);
+      // Re-render rank numbers
+      list.querySelectorAll(".rank").forEach((r, i) => {
+        r.textContent = `#${i + 1}`;
+      });
+    }
+
+    function shareRanking() {
+      const ids = loadOrder();
+      const ranked = ids.map((id, i) => {
+        const m = MOVIES.find(x => x.id === id);
+        return `${i + 1}. ${m.title} (${m.year})`;
+      });
+
+      const text = "🎬 My Christopher Nolan Ranking:\n\n" + ranked.join("\n") + "\n\nMake yours: https://dkelley-nolan.netlify.app";
+
+      navigator.clipboard.writeText(text).then(() => {
+        const toast = document.getElementById("toast");
+        toast.classList.add("show");
+        setTimeout(() => toast.classList.remove("show"), 2000);
+      }).catch(() => {
+        // Fallback
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        const toast = document.getElementById("toast");
+        toast.classList.add("show");
+        setTimeout(() => toast.classList.remove("show"), 2000);
+      });
+    }
+
+    function resetRanking() {
+      localStorage.removeItem(STORAGE_KEY);
+      render();
+    }
+
+    render();
+  </script>
+</body>
+</html>
